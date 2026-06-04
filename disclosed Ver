@@ -886,20 +886,7 @@ body.dark .alert-info { color: var(--green-light); }
 
 <script>
 // ===== CONFIG =====
-const API_BASE = 'https://csint.pro/api';
-let API_KEY = 'csint_4b71d6a0bf85fe8d98d3a674686c337e';
-
-// ===== HARDCODED SUBSCRIPTIONS =====
-const SUBSCRIPTIONS = {
-  'FREE-SECRET-23423423': { name: 'Free USR', plan: 'Free', tier: 0, endpoints: ['discord/lookup', 'iplookup', 'email/analyze', 'search'], requests_per_hour: 50, expiry: '2026-12-31' },
-    //
-  'PRO-SECRET-3242342342': { name: 'Pro USR', plan: 'Pro', tier: 1, endpoints: ['*'], requests_per_hour: 500, expiry: '2026-12-31' },
-    //
-    'ENT-COOLKID-*&@*#zw': { name: 'GayBoi', plan: 'Enterprise', tier: 2, endpoints: ['*'], requests_per_hour: 5000, expiry: '2026-12-31' },
-    //
-  'FOUNDERS-API-ACCESS-X*@#U': { name: 'Founders', plan: 'Enterprise', tier: 2, endpoints: ['*'], requests_per_hour: 5000, expiry: '2028-6-5' }
-    //
-};
+const API_BASE = '/api';
 
 let currentUser = null;
 let requestCount = 0;
@@ -1003,16 +990,12 @@ function initTheme() {
 function doLogin() {
   const userId = document.getElementById('apiKeyInput').value.trim();
   if (!userId) { showLoginError('Please enter a subscription ID.'); return; }
-  const sub = SUBSCRIPTIONS[userId];
-  if (!sub) { showLoginError('Invalid subscription ID. Try: demo-free, demo-pro, or demo-enterprise'); return; }
-  const now = new Date();
-  const expiry = new Date(sub.expiry);
-  if (now > expiry) { showLoginError('Subscription has expired. Please renew.'); return; }
-  currentUser = { id: userId, ...sub };
+  // Subscription validation is now handled server-side
+  currentUser = { id: userId, name: userId, plan: 'Active', tier: 1, endpoints: ['*'], requests_per_hour: 500, expiry: '2030-12-31' };
   requestCount = 0;
   requestResetTime = Date.now() + 3600000;
   localStorage.setItem('userId', userId);
-  updateUserUI(sub.name, sub.plan);
+  updateUserUI(currentUser.name, currentUser.plan);
   showPage('home');
 }
 function logout() {
@@ -1043,16 +1026,9 @@ function switchAuthTab(tab) {
 }
 function restoreSession() {
   const userId = localStorage.getItem('userId');
-  if (userId && SUBSCRIPTIONS[userId]) {
-    const sub = SUBSCRIPTIONS[userId];
-    const now = new Date();
-    const expiry = new Date(sub.expiry);
-    if (now <= expiry) {
-      currentUser = { id: userId, ...sub };
-      updateUserUI(sub.name, sub.plan);
-    } else {
-      localStorage.removeItem('userId');
-    }
+  if (userId) {
+    currentUser = { id: userId, name: userId, plan: 'Active', tier: 1, endpoints: ['*'], requests_per_hour: 500, expiry: '2030-12-31' };
+    updateUserUI(currentUser.name, currentUser.plan);
   }
 }
 function checkAccess(endpoint) {
@@ -1157,7 +1133,7 @@ async function runSelectedTool() {
   document.getElementById('statusTime').textContent = new Date().toLocaleTimeString();
   const t0 = Date.now();
   try {
-    const res = await fetch(API_BASE + selectedTool.endpoint, { method:'POST', headers:{'X-API-Key':API_KEY,'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    const res = await fetch(API_BASE + selectedTool.endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
     const text = await res.text();
     const elapsed = Date.now() - t0;
     
@@ -1300,7 +1276,7 @@ async function runTool(tool, query, detectedType, signal) {
     
     const res = await fetch(API_BASE + tool.endpoint, {
       method: 'POST',
-      headers: { 'X-API-Key': API_KEY, 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       signal
     });
@@ -1534,7 +1510,7 @@ async function checkStatus() {
   let online = 0, offline = 0;
   const results = await Promise.allSettled(endpoints.map(async t => {
     try {
-      const res = await fetch(API_BASE + t.endpoint, { method:'POST', headers:{'X-API-Key':API_KEY,'Content-Type':'application/json'}, body:JSON.stringify({}), signal:AbortSignal.timeout(5000) });
+      const res = await fetch(API_BASE + t.endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({}), signal:AbortSignal.timeout(5000) });
       return { name:t.name, endpoint:t.endpoint, ok:res.status < 500, status:res.status };
     } catch(e) { return { name:t.name, endpoint:t.endpoint, ok:false, status:0 }; }
   }));
