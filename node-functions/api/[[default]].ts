@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+const crypto = require('crypto');
 
 const UPSTREAM_BASE = 'https://csint.pro/api';
 

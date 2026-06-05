@@ -1005,7 +1005,7 @@ async function doLogin() {
       id: data.tier,
       name: data.name,
       plan: data.name,
-      tier: data.tier === 'pro' ? 2 : 1,
+      tier: data.tier === 'enterprise' ? 3 : data.tier === 'pro' ? 2 : 1,
       endpoints: data.endpoints,
       requests_per_hour: data.requests_per_hour,
       expiry: data.expiry
@@ -1067,7 +1067,7 @@ async function restoreSession() {
       id: data.tier,
       name: data.name,
       plan: data.name,
-      tier: data.tier === 'pro' ? 2 : 1,
+      tier: data.tier === 'enterprise' ? 3 : data.tier === 'pro' ? 2 : 1,
       endpoints: data.endpoints,
       requests_per_hour: data.requests_per_hour,
       expiry: data.expiry
