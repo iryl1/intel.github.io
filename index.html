@@ -847,9 +847,9 @@ body.dark .alert-info { color: var(--green-light); }
           </div>
         </div>
         <div class="form-group">
-          <label class="form-label">Subscription ID</label>
-          <input type="text" id="apiKeyInput" class="input input-mono" placeholder="API Login">
-          <div class="form-hint">Enter your subscription ID to access the platform</div>
+          <label class="form-label">API Key</label>
+          <input type="text" id="apiKeyInput" class="input input-mono" placeholder="Enter your API key">
+          <div class="form-hint">Enter your API key to access the platform</div>
         </div>
         <button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="doLogin()">Login to Platform</button>
         <div id="loginError" class="alert alert-warning" style="display:none;margin-top:12px;"></div>
@@ -886,20 +886,7 @@ body.dark .alert-info { color: var(--green-light); }
 
 <script>
 // ===== CONFIG =====
-const API_BASE = 'https://csint.pro/api';
-let API_KEY = 'csint_4b71d6a0bf85fe8d98d3a674686c337e';
-
-// ===== HARDCODED SUBSCRIPTIONS =====
-const SUBSCRIPTIONS = {
-  'FREE-SECRET-23423423': { name: 'Free USR', plan: 'Free', tier: 0, endpoints: ['discord/lookup', 'iplookup', 'email/analyze', 'search'], requests_per_hour: 50, expiry: '2026-12-31' },
-    //
-  'PRO-SECRET-3242342342': { name: 'Pro USR', plan: 'Pro', tier: 1, endpoints: ['*'], requests_per_hour: 500, expiry: '2026-12-31' },
-    //
-    'ENT-COOLKID-*&@*#zw': { name: 'GayBoi', plan: 'Enterprise', tier: 2, endpoints: ['*'], requests_per_hour: 5000, expiry: '2026-12-31' },
-    //
-  'FOUNDERS-API-ACCESS-X*@#U': { name: 'Founders', plan: 'Enterprise', tier: 2, endpoints: ['*'], requests_per_hour: 5000, expiry: '2028-6-5' }
-    //
-};
+const API_BASE = '/api';
 
 let currentUser = null;
 let requestCount = 0;
@@ -1000,24 +987,43 @@ function initTheme() {
 }
 
 // ===== AUTH =====
-function doLogin() {
-  const userId = document.getElementById('apiKeyInput').value.trim();
-  if (!userId) { showLoginError('Please enter a subscription ID.'); return; }
-  const sub = SUBSCRIPTIONS[userId];
-  if (!sub) { showLoginError('Invalid subscription ID. Try: demo-free, demo-pro, or demo-enterprise'); return; }
-  const now = new Date();
-  const expiry = new Date(sub.expiry);
-  if (now > expiry) { showLoginError('Subscription has expired. Please renew.'); return; }
-  currentUser = { id: userId, ...sub };
-  requestCount = 0;
-  requestResetTime = Date.now() + 3600000;
-  localStorage.setItem('userId', userId);
-  updateUserUI(sub.name, sub.plan);
-  showPage('home');
+async function doLogin() {
+  const key = document.getElementById('apiKeyInput').value.trim();
+  if (!key) { showLoginError('Please enter an API key.'); return; }
+  try {
+    const res = await fetch(API_BASE + '/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showLoginError(data.error || 'Login failed');
+      return;
+    }
+    currentUser = {
+      id: data.tier,
+      name: data.name,
+      plan: data.name,
+      tier: data.tier === 'enterprise' ? 3 : data.tier === 'pro' ? 2 : 1,
+      endpoints: data.endpoints,
+      requests_per_hour: data.requests_per_hour,
+      expiry: data.expiry
+    };
+    requestCount = 0;
+    requestResetTime = Date.now() + 3600000;
+    localStorage.setItem('authToken', data.token);
+    localStorage.setItem('userId', data.name);
+    updateUserUI(currentUser.name, currentUser.plan);
+    showPage('home');
+  } catch (err) {
+    showLoginError('Network error: ' + err.message);
+  }
 }
 function logout() {
   currentUser = null;
   localStorage.removeItem('userId');
+  localStorage.removeItem('authToken');
   document.getElementById('userInfo').style.display = 'none';
   document.getElementById('authButtons').style.display = 'flex';
   document.getElementById('apiKeyInput').value = '';
@@ -1041,18 +1047,36 @@ function switchAuthTab(tab) {
   document.getElementById('loginForm').style.display = tab==='login' ? 'block' : 'none';
   document.getElementById('registerForm').style.display = tab==='register' ? 'block' : 'none';
 }
-function restoreSession() {
-  const userId = localStorage.getItem('userId');
-  if (userId && SUBSCRIPTIONS[userId]) {
-    const sub = SUBSCRIPTIONS[userId];
-    const now = new Date();
-    const expiry = new Date(sub.expiry);
-    if (now <= expiry) {
-      currentUser = { id: userId, ...sub };
-      updateUserUI(sub.name, sub.plan);
-    } else {
+async function restoreSession() {
+  const token = localStorage.getItem('authToken');
+  if (!token) return;
+  try {
+    const res = await fetch(API_BASE + '/auth/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token })
+    });
+    if (!res.ok) {
+      localStorage.removeItem('authToken');
       localStorage.removeItem('userId');
+      currentUser = null;
+      return;
     }
+    const data = await res.json();
+    currentUser = {
+      id: data.tier,
+      name: data.name,
+      plan: data.name,
+      tier: data.tier === 'enterprise' ? 3 : data.tier === 'pro' ? 2 : 1,
+      endpoints: data.endpoints,
+      requests_per_hour: data.requests_per_hour,
+      expiry: data.expiry
+    };
+    requestCount = 0;
+    requestResetTime = Date.now() + 3600000;
+    updateUserUI(currentUser.name, currentUser.plan);
+  } catch {
+    // Network error — keep session, will retry on next action
   }
 }
 function checkAccess(endpoint) {
@@ -1063,7 +1087,7 @@ function checkAccess(endpoint) {
   if (Date.now() > requestResetTime) { requestCount = 0; requestResetTime = Date.now() + 3600000; }
   if (requestCount >= currentUser.requests_per_hour) return { allowed: false, reason: `Rate limit exceeded (${currentUser.requests_per_hour}/hour). Resets in ${Math.ceil((requestResetTime - Date.now()) / 60000)} minutes.` };
   const hasAccess = currentUser.endpoints.includes('*') || currentUser.endpoints.some(e => endpoint.includes(e));
-  if (!hasAccess) return { allowed: false, reason: `Endpoint not available in ${currentUser.plan} plan.` };
+  if (!hasAccess) return { allowed: false, reason: `Endpoint not available in ${currentUser.plan || 'current'} plan.` };
   requestCount++;
   return { allowed: true, remaining: currentUser.requests_per_hour - requestCount };
 }
@@ -1157,7 +1181,8 @@ async function runSelectedTool() {
   document.getElementById('statusTime').textContent = new Date().toLocaleTimeString();
   const t0 = Date.now();
   try {
-    const res = await fetch(API_BASE + selectedTool.endpoint, { method:'POST', headers:{'X-API-Key':API_KEY,'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    const res = await fetch(API_BASE + selectedTool.endpoint, { method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+localStorage.getItem('authToken')}, body:JSON.stringify(body) });
+    if (res.status === 401) { localStorage.removeItem('authToken'); localStorage.removeItem('userId'); currentUser = null; document.getElementById('userInfo').style.display = 'none'; document.getElementById('authButtons').style.display = 'flex'; alert('Session expired. Please log in again.'); showPage('login'); return; }
     const text = await res.text();
     const elapsed = Date.now() - t0;
     
@@ -1300,10 +1325,11 @@ async function runTool(tool, query, detectedType, signal) {
     
     const res = await fetch(API_BASE + tool.endpoint, {
       method: 'POST',
-      headers: { 'X-API-Key': API_KEY, 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + localStorage.getItem('authToken') },
       body: JSON.stringify(body),
       signal
     });
+    if (res.status === 401) { localStorage.removeItem('authToken'); localStorage.removeItem('userId'); currentUser = null; document.getElementById('userInfo').style.display = 'none'; document.getElementById('authButtons').style.display = 'flex'; alert('Session expired. Please log in again.'); showPage('login'); return null; }
     const text = await res.text();
     let data;
     try { data = JSON.parse(text); } catch(e) { data = text; }
@@ -1534,7 +1560,7 @@ async function checkStatus() {
   let online = 0, offline = 0;
   const results = await Promise.allSettled(endpoints.map(async t => {
     try {
-      const res = await fetch(API_BASE + t.endpoint, { method:'POST', headers:{'X-API-Key':API_KEY,'Content-Type':'application/json'}, body:JSON.stringify({}), signal:AbortSignal.timeout(5000) });
+      const res = await fetch(API_BASE + t.endpoint, { method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+localStorage.getItem('authToken')}, body:JSON.stringify({}), signal:AbortSignal.timeout(5000) });
       return { name:t.name, endpoint:t.endpoint, ok:res.status < 500, status:res.status };
     } catch(e) { return { name:t.name, endpoint:t.endpoint, ok:false, status:0 }; }
   }));
